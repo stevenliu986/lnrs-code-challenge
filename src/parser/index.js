@@ -3,6 +3,39 @@ import grammar from "./grammar.js";
 
 const EPSILON = 1e-9;
 
+// export function parse(input) {
+//     if (input == null || input.trim() === '') {
+//         return {
+//             ok: false,
+//             error: { message: 'Empty input - type an expression.', line: 1, col: 1, offset: 0 }
+//         }
+//     }
+
+//     const parser = new nearley.Parser(nearley.Grammar.fromCompiled(grammar));
+
+//     try {
+//         parser.feed(input);
+//     } catch (err) {
+//         return { ok: false, error: locateError(err, input) };
+//     }
+
+//     const results = parser.results;
+
+//     if (results.length === 0) {
+//         return {
+//             ok: false,
+//             error: {
+//                 message: 'Unexpected end of input - the expression is incomplete.',
+//                 line: 1,
+//                 col: input.length + 1,
+//                 offset: input.length
+//             }
+//         }
+//     }
+
+//     return { ok: true, ast: results[0] };
+// }
+
 export function parse(input) {
     if (input == null || input.trim() === '') {
         return {
@@ -22,13 +55,35 @@ export function parse(input) {
     const results = parser.results;
 
     if (results.length === 0) {
+        const currentColumn = parser.table?.length || (input.length + 1);
+
+        let errorCol = currentColumn;
+        let errorMsg = 'Unexpected end of input - the expression is incomplete.';
+
+        const openParens = (input.match(/\(/g) || []).length;
+        const closeParens = (input.match(/\)/g) || []).length;
+
+        if (openParens > closeParens) {
+            const lastOpenIdx = input.lastIndexOf('(');
+            const afterParenText = input.slice(lastOpenIdx + 1);
+            const matchEq = /!=|=/.exec(afterParenText);
+
+            if (matchEq) {
+                errorCol = lastOpenIdx + 1 + matchEq.index;
+                errorMsg = `Mismatched parentheses - unexpected '${matchEq[0]}' inside expression before closing ')'.`;
+            } else {
+                errorCol = input.length + 1;
+                errorMsg = "Mismatched parentheses - closing ')' is missing.";
+            }
+        }
+
         return {
             ok: false,
             error: {
-                message: 'Unexpected end of input - the expression is incomplete.',
+                message: errorMsg,
                 line: 1,
-                col: input.length + 1,
-                offset: input.length
+                col: errorCol,
+                offset: errorCol - 1
             }
         }
     }
@@ -39,9 +94,12 @@ export function parse(input) {
 function locateError(err, input) {
     const token = err?.token;
     if (token && typeof token.col === 'number') {
-        const what = token.text ? `'${token.text}'` : 'token';
+        let errorMsg = `Unexpected '${token.text || token.value}' at column ${token.col}.`;
+        if (token.value === ')') {
+            errorMsg = "Mismatched parentheses - unexpected closing ')' without a matching '('.";
+        }
         return {
-            message: `Unexpected ${what} at column ${token.col}.`,
+            message: errorMsg,
             line: token.line ?? 1,
             col: token.col,
             offset: token.offset ?? token.col - 1
